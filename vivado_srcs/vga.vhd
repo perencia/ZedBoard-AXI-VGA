@@ -20,7 +20,8 @@ entity vga is port (
     g               : out std_logic_vector(3 downto 0);
     b               : out std_logic_vector(3 downto 0);
     hs              : out std_logic;
-    vs              : out std_logic
+    vs              : out std_logic;
+    enable          : in std_logic
 );
 end vga;
 
@@ -39,11 +40,11 @@ constant ZERO             : unsigned(10 downto 0) := (others => '0');
 constant h_active         : unsigned(10 downto 0) := ZERO + 640;
 constant h_front_porch    : unsigned(10 downto 0) := h_active        + 16;
 constant h_sync_pulse     : unsigned(10 downto 0) := h_front_porch   + 96;
-constant h_back_porch     : unsigned(10 downto 0) := h_sync_pulse    + 48 -1; 
+constant h_back_porch     : unsigned(10 downto 0) := h_sync_pulse    + 48; 
 constant v_active         : unsigned(10 downto 0) := ZERO + 480;
-constant v_front_porch    : unsigned(10 downto 0) := v_active        + 10;
+constant v_front_porch    : unsigned(10 downto 0) := v_active        + 11;
 constant v_sync_pulse     : unsigned(10 downto 0) := v_front_porch   + 2;
-constant v_back_porch     : unsigned(10 downto 0) := v_sync_pulse    + 33 - 1;
+constant v_back_porch     : unsigned(10 downto 0) := v_sync_pulse    + 31;
 
 type pixel_buffer_type is array (0 to 63) of std_logic_vector(31 downto 0);
 signal pixel_buffer       : pixel_buffer_type;
@@ -63,6 +64,7 @@ M_AXI_RREADY  <= rready;
 
 axi_read_fsm : process(M_AXI_ACLK)
 begin
+    if enable = '1' then
     if rising_edge(M_AXI_ACLK) then
         case state is
             when REQUEST_READ =>
@@ -85,7 +87,7 @@ begin
                     end if;
                 end if;
              when IDLE =>
-                if h_cnt(5 downto 0) = 53 then
+                if h_cnt(5 downto 0) = 63 then
                     if h_cnt < h_active then
                         next_address <= next_address + 128;
                     elsif v_cnt > v_active then
@@ -95,21 +97,23 @@ begin
                 end if;
         end case;
     end if;
+    end if;
 end process;
 
 vga_clocking: process (M_AXI_ACLK)
 begin
+    if enable = '1' then
     if rising_edge(M_AXI_ACLK) then
         clk_divider <= clk_divider + 1;
-        if clk_divider = 4 - 1 then -- 102Mhz ACLK input clock required
+        if clk_divider = 4 - 1 then -- 100Mhz ACLK input clock required
             clk_divider <= (others => '0');
             if h_cnt(0) = '0' then
-                r <= pixel_buffer(to_integer("0" & (h_cnt(5 downto 1))))(11 downto 8);
-                g <= pixel_buffer(to_integer("0" & (h_cnt(5 downto 1))))(7  downto 4);
+                r <= pixel_buffer(to_integer("0" & (h_cnt(5 downto 1))))(14 downto 11);
+                g <= pixel_buffer(to_integer("0" & (h_cnt(5 downto 1))))(8  downto 5);
                 b <= pixel_buffer(to_integer("0" & (h_cnt(5 downto 1))))(3  downto 0);
             else
-                r <= pixel_buffer(to_integer((h_cnt(5 downto 0) - 1) / 2))(27 downto 24);
-                g <= pixel_buffer(to_integer((h_cnt(5 downto 0) - 1) / 2))(23 downto 20);
+                r <= pixel_buffer(to_integer((h_cnt(5 downto 0) - 1) / 2))(30 downto 27);
+                g <= pixel_buffer(to_integer((h_cnt(5 downto 0) - 1) / 2))(24 downto 21);
                 b <= pixel_buffer(to_integer((h_cnt(5 downto 0) - 1) / 2))(19 downto 16);
             end if;
             if v_cnt >= v_active or h_cnt >= h_active then 
@@ -118,18 +122,19 @@ begin
                 b <= (others => '0');
             end if;
             h_cnt <= h_cnt + 1;
-            if h_cnt = h_back_porch then
+            if h_cnt = h_back_porch - 1 then
                 h_cnt <= (others => '0');
                 v_cnt <= v_cnt + 1;
-                if v_cnt = v_back_porch then
+                if v_cnt = v_back_porch -1 then
                     v_cnt <= (others => '0');
                 end if;
             end if;
         end if;
     end if;
+    end if;
 end process;
 
-vs <= '1' when v_cnt >= v_front_porch and v_cnt <= v_sync_pulse else '0';
-hs <= '1' when h_cnt >= h_front_porch and h_cnt <= h_sync_pulse else '0';
+vs <= '1' when v_cnt >= v_front_porch and v_cnt < v_sync_pulse else '0';
+hs <= '1' when h_cnt >= h_front_porch and h_cnt < h_sync_pulse else '0';
 
 end impl;
